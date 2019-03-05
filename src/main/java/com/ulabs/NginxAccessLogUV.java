@@ -42,6 +42,10 @@ public class NginxAccessLogUV {
                 String ip = arr[0].trim(); // IP
                 String v = arr[1].trim();  // others
 
+                if (!v.contains("/lesson/lessonFree/free/statistics")) {
+                    return;
+                }
+
                 String regex = "userId=\\d?&";
                 Pattern p = Pattern.compile(regex);
                 Matcher matcher = p.matcher(v);
@@ -60,14 +64,14 @@ public class NginxAccessLogUV {
 
                 String userId = "";
                 userId = v.substring(startIndex, endIndex-1).split("=")[1];
+                System.out.println("startIdex:"+startIndex+ "  endIndex:"+endIndex + " userId:"+userId);
 
                 Date d = getDateByValue(vs);// DATE
                 SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd");
                 Text k = new Text(f.format(d));
                 // 以日期分组
-                if (v.contentEquals("type=pv")) {
-                    context.write(k, new Text(ip+"--"+userId));
-                }
+                context.write(k, new Text(ip+"--"+userId));
+
             } catch (Exception e) {
                 System.out.println("MAPPER ++++++++++++++++++++++++++"+e.getMessage());
             }
