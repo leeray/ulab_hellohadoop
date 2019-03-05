@@ -1,19 +1,7 @@
 package com.ulabs;
 
-import java.io.IOException;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Locale;
-import java.util.Map;
-
-import org.apache.hadoop.conf.Configurable;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.PathFilter;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
@@ -23,13 +11,20 @@ import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 
+import java.io.IOException;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 /**
- * Created by leeray on 2019/3/4.
- *
- * nginx 数据格式为：
- * 106.14.115.254 - - [22/Feb/2019:04:48:46 +0800] "GET /mobile/lesson/list HTTP/1.1" 301 185 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 8_0_2 like Mac OS X)" "-"
+ * Created by leeray on 2019/3/5.
  */
-public class NginxAccessLog {
+public class NginxAccessLogUV {
 
     public static class Map01 extends Mapper<LongWritable, Text, Text, Text> {
         private Date getDateByValue(String vs) throws ParseException {
@@ -44,14 +39,34 @@ public class NginxAccessLog {
             try {
                 String vs = value.toString();
                 String[] arr = vs.split("- -");
-//              String k = arr[0].trim();// IP
-                String v = arr[1].trim();// others
+                String ip = arr[0].trim(); // IP
+                String v = arr[1].trim();  // others
+
+                String regex = "userId=\\d?&";
+                Pattern p = Pattern.compile(regex);
+                Matcher matcher = p.matcher(v);
+
+                int startIndex = 0;
+                int endIndex = 0;
+                while(matcher.find()) {
+                    startIndex = matcher.start();
+                    endIndex = matcher.end();
+
+                    break;
+                }
+                if (startIndex <= 0 && endIndex <= 0) {
+                    return;
+                }
+
+                String userId = "";
+                userId = v.substring(startIndex, endIndex-1).split("=")[1];
+
                 Date d = getDateByValue(vs);// DATE
                 SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd");
                 Text k = new Text(f.format(d));
                 // 以日期分组
                 if (v.contentEquals("type=pv")) {
-                    context.write(k, new Text(vs));
+                    context.write(k, new Text(ip+"--"+userId));
                 }
             } catch (Exception e) {
                 System.out.println("MAPPER ++++++++++++++++++++++++++"+e.getMessage());
@@ -66,9 +81,7 @@ public class NginxAccessLog {
             Map<String,String> m = new HashMap<String,String>();
             for(Text value : values){
                 String vs = value.toString();
-                String[] arr = vs.split("- -");
-                String ip = arr[0].trim();// IP
-                m.put(ip, "");
+                m.put(vs, "");
             }
             System.out.println("RRRRRRR <><> "+m);
             context.write(key, new IntWritable(m.size()));
@@ -116,15 +129,50 @@ public class NginxAccessLog {
 
         // JobConf conf = new JobConf(MaxTptr.class);
         try {
+//            String str = "[28/Feb/2019:08:27:31 +0800] \"GET /lesson/lessonFree/free/statistics?type=pv&userId=0&referer=https%3A%2F%2Fwww.linkmoc.com%2Flearning%2Flesson%2FtoListLesson%3Fpage\n" +
+//                    "Num%3D5%26brand_name%3D%25E5%2585%25A8%25E9%2583%25A8%26direction_name%3D%25E5%2585%25A8%25E9%2583%25A8%26lable_name%3D%25E5%2585%25A8%25E9%2583%25A8%26uptimes%3Dup_time%26type%3D0%26na\n" +
+//                    "me%3D%26lesson_category%3D HTTP/2.0\"";
+//            String regex = "userId=\\d?&";
+//            Pattern p = Pattern.compile(regex);
+//            Matcher matcher = p.matcher(str);
+//
+//            int startIndex = 0;
+//            int endIndex = 0;
+//            while(matcher.find())
+//            {
+//                System.out.println(matcher.group());
+//                System.out.println(matcher.start()+"...."+matcher.end());
+//                startIndex = matcher.start();
+//                endIndex = matcher.end();
+//
+//                break;
+//            }
+//            if (startIndex <= 0 && endIndex <= 0) {
+//                return;
+//            }
+//
+//            String userId = "";
+//            userId = str.substring(startIndex, endIndex-1).split("=")[1];
+//
+//            System.out.println("userId = " + userId);
+//
+//            System.out.println("str.matches:"+ str.matches(regex));
+//
+//            String[] arr = str.split(regex);
+//            for(String s : arr)
+//            {
+//                System.out.println("split:"+ s);
+//            }
+
             Configuration conf = new Configuration();
-            Job job = Job.getInstance(conf, "nginx access log");
+            Job job = Job.getInstance(conf, "nginx access log uv");
             job.setJarByClass(NginxAccessLog.class);
 
             FileInputFormat.addInputPath(job, new Path(args[0]));
             FileOutputFormat.setOutputPath(job, new Path(args[1]));
 
-            job.setMapperClass(Map01.class);
-            job.setReducerClass(Reduce01.class);
+            job.setMapperClass(NginxAccessLogUV.Map01.class);
+            job.setReducerClass(NginxAccessLogUV.Reduce01.class);
 
             /**
              * map 的输出如果跟 reduce 的输出不一致则必须要做此步配置，否则会按照 reduce 的输出进行默认
@@ -146,6 +194,8 @@ public class NginxAccessLog {
         } catch (InterruptedException e) {
             e.printStackTrace();
         } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        } catch (Exception e) {
             e.printStackTrace();
         }
 
